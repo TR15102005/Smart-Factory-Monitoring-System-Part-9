@@ -68,11 +68,15 @@ smart-factory-monitor/
 ├── package.json              # root scripts (setup / dev / build)
 ├── .gitignore
 ├── README.md
+├── vercel.json               # Vercel build/output + /api rewrite + SPA fallback
+├── api/index.js              # Vercel serverless entrypoint (imports server/src/app.js)
 ├── server/                   # Express + MongoDB API
 │   ├── package.json
 │   ├── .env.example
 │   └── src/
-│       ├── index.js          # app entry (port 5001 by default), mounts all routes
+│       ├── index.js          # local/Render entry: bootstrap + listen (port 5001 default)
+│       ├── app.js            # Express app (routes + optional static client), importable
+│       ├── bootstrap.js      # idempotent startup: connect DB, seed, start simulation
 │       ├── config/db.js      # Mongo connect + in-memory fallback
 │       ├── models/           # User, Zone, Worker, Robot, Incident,
 │       │                     # MaintenanceRecord, Report, Certification, Setting
@@ -196,6 +200,37 @@ git push -u origin main
   add a rewrite so `/api/*` points to your hosted API (or set `VITE_API_URL`).
 - **All-in-one**: run `npm start` (API) and serve `client/dist` statically from Express if you
   prefer a single host.
+
+## Deploying to Vercel (frontend + backend on one project)
+
+The repo is pre-wired for a single Vercel project that serves the React client **and** runs the
+Express API as a serverless function on the same origin (so the client's relative `/api/*` calls
+just work — no CORS, no `VITE_API_URL`).
+
+What makes it work:
+
+- `api/index.js` — Vercel Node entrypoint that imports the shared Express app (`server/src/app.js`)
+  and calls `bootstrap()` (connect storage, seed demo data, start the live simulation) once per
+  warm instance.
+- `vercel.json` — builds `client/` into `client/dist`, sets that as the static output, rewrites
+  `/api/*` to the function and every other path to `index.html` (React Router SPA fallback).
+- `server/src/app.js` / `server/src/bootstrap.js` — the app is split from the listen loop, so the
+  same code runs locally (`npm start`), on Render (single service) and on Vercel (serverless).
+
+Steps:
+
+1. Push this repo to GitHub.
+2. In Vercel → **Add New → Project**, import the repo. **Leave Root Directory blank** (repo root)
+   so both `api/` and `client/` are seen; `vercel.json` supplies the build/output settings.
+3. Add environment variables: `MONGO_URI` (MongoDB Atlas), `JWT_SECRET`, `ADMIN_EMAIL`,
+   `ADMIN_PASSWORD`. Do **not** set `PORT` — Vercel manages it.
+4. Deploy. The app is live at `https://<project>.vercel.app`.
+
+> **Serverless caveat:** functions are ephemeral, so use **MongoDB Atlas** for persistence — the
+> in-memory fallback resets on every cold start. The live simulation only ticks while an instance
+> is warm; on the free tier the project sleeps after inactivity, so the first request is slower and
+> the simulated floor re-seeds. For a continuously-live floor, host the API on Render/Railway/Fly
+> (persistent process) and deploy only `client/` to Vercel with an `/api/*` rewrite to that API.
 
 ## Scripts
 
